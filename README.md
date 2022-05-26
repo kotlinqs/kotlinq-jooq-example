@@ -1,0 +1,1 @@
+Just example of `kotlinq-jooq` usage. Check for `main.kt` 
