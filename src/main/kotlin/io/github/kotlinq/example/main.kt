@@ -1,38 +1,43 @@
 package io.github.kotlinq.example
 
-import io.github.kotlinq.Kotlinq
-import io.github.kotlinq.jooq.selectQueryableFrom
+import org.jooq.ExecuteContext
+import org.jooq.conf.ParamType
 import org.jooq.generated.public_.Tables
-import org.jooq.generated.public_.tables.records.AnimalsRecord
 import org.jooq.impl.DSL
+import org.jooq.impl.DefaultExecuteListener
 
 const val Thousand = 1000
 
-@Kotlinq
 fun main() {
+    var sqlQuery = ""
     DSL.using("jdbc:h2:./example").use { dsl ->
-        val totalPopulation = dsl.selectQueryableFrom(Tables.ANIMALS)
-            .map { it.population }
-            .aggregate { it.sum() }
-        println("Total population: $totalPopulation")
+        dsl.configuration().set(object : DefaultExecuteListener() {
+            override fun executeStart(ctx: ExecuteContext) {
+                sqlQuery = ctx.query()?.getSQL(ParamType.INLINED)!!
+            }
 
-        val report = dsl.selectQueryableFrom(Tables.SPECIES)
-            .join<AnimalsRecord, AnimalDescription>(
-                dsl.selectQueryableFrom(Tables.ANIMALS)
-                    .filter { it.population > Thousand },
-                { s, a -> s.id == a.speciesId }
-            ) { s, a -> AnimalDescription(s.name, a.name, a.population / Thousand) }
-            .sortedDescendingBy { it.popularityK }
-            .map { "${it.speciesName.uppercase()}: ${it.animalName}  [${it.popularityK}K]" }
-            .toList()
-            .joinToString("\n")
-        println(report)
-
+        })
+        println("DB Storage")
+        println("================")
+        ReportMaker().makeAndPrintReport(JooqStorage(dsl))
     }
-}
 
-data class AnimalDescription(
-    val speciesName: String,
-    val animalName: String,
-    val popularityK: Int
-)
+    println()
+    println("Memory Storage")
+    println("================")
+    val memoryStorage = DSL.using("jdbc:h2:./example").use { dsl ->
+        MemoryStorage(
+            dsl.fetch(Tables.ANIMALS).toList(),
+            dsl.fetch(Tables.SPECIES).toList(),
+        )
+    }
+    ReportMaker().makeAndPrintReport(memoryStorage)
+    println()
+
+    println()
+    println("SQL query generated")
+    println("================")
+    println(sqlQuery
+        .replace(Regex("(where|order|from)"), "\n  $1"))
+
+}
